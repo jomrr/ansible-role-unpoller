@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for unpoller releases daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Install the latest verified unpoller release
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/unpoller/update --scheduled
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/usr/local/libexec/unpoller /usr/local/bin
+UMask=0077

@@ -1,0 +1,105 @@
+---
+# role: unpoller
+# file: tasks/main.yml
+
+- name: Validate controller settings
+  ansible.builtin.assert:
+    that:
+      - unpoller_controller_url is match('^https://[^/@?#\s]+/?$')
+      - unpoller_sites | length > 0
+      - unpoller_auth_method != 'password' or unpoller_username | length > 0
+    quiet: true
+
+- name: Check that the selected credential has content
+  ansible.builtin.assert:
+    that: unpoller_credential | trim | length > 0
+    quiet: true
+  no_log: true
+
+- name: Install the system account and release
+  ansible.builtin.import_tasks: install.yml
+  vars:
+    __unpoller_release_handlers: [restart unpoller]
+
+- name: Create the protected configuration directory
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: /etc/unpoller
+    state: directory
+    owner: root
+    group: unpoller
+    mode: '0750'
+
+- name: Store the controller credential
+  become: true
+  become_user: root
+  ansible.builtin.copy:
+    content: '{{ unpoller_credential }}'
+    dest: /etc/unpoller/credential
+    owner: root
+    group: unpoller
+    mode: '0640'
+    backup: false
+  diff: false
+  no_log: true
+  notify: restart unpoller
+
+- name: Configure the controller and metrics endpoint
+  become: true
+  become_user: root
+  ansible.builtin.template:
+    src: up.conf.j2
+    dest: /etc/unpoller/up.conf
+    owner: root
+    group: unpoller
+    mode: '0640'
+    backup: '{{ unpoller_backup }}'
+  notify: restart unpoller
+
+- name: Install the exporter service
+  become: true
+  become_user: root
+  ansible.builtin.copy:
+    src: unpoller.service
+    dest: /etc/systemd/system/unpoller.service
+    owner: root
+    group: root
+    mode: '0644'
+    backup: '{{ unpoller_backup }}'
+  notify: restart unpoller
+
+- name: Install the scheduled update units
+  become: true
+  become_user: root
+  ansible.builtin.copy:
+    src: '{{ __unpoller_unit }}'
+    dest: '/etc/systemd/system/{{ __unpoller_unit }}'
+    owner: root
+    group: root
+    mode: '0644'
+    backup: '{{ unpoller_backup }}'
+  loop:
+    - unpoller-update.service
+    - unpoller-update.timer
+  loop_control:
+    loop_var: __unpoller_unit
+    label: '{{ __unpoller_unit }}'
+  notify: restart update timer
+
+- name: Apply pending unit and configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the exporter and update timer
+  become: true
+  become_user: root
+  ansible.builtin.systemd_service:
+    name: '{{ __unpoller_unit }}'
+    enabled: true
+    state: started
+  loop:
+    - unpoller.service
+    - unpoller-update.timer
+  loop_control:
+    loop_var: __unpoller_unit
+    label: '{{ __unpoller_unit }}'

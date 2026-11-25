@@ -1,0 +1,36 @@
+{{ ansible_managed | comment(prefix_count=0, postfix_count=0) }}
+# file: {{ template_destpath }}
+
+[poller]
+debug = false
+
+[prometheus]
+disable = false
+http_listen = {{ unpoller_listen_address | to_json }}
+
+[influxdb]
+disable = true
+
+[loki]
+disable = true
+
+[datadog]
+enable = false
+
+[webserver]
+enable = false
+
+[unifi]
+dynamic = false
+
+[unifi.defaults]
+url = {{ unpoller_controller_url | to_json }}
+verify_ssl = {{ unpoller_verify_ssl | bool | lower }}
+sites = {{ unpoller_sites | to_json }}
+save_dpi = {{ unpoller_save_dpi | bool | lower }}
+{% if unpoller_auth_method == 'api_key' %}
+api_key = "file:///etc/unpoller/credential"
+{% else %}
+user = {{ unpoller_username | to_json }}
+pass = "file:///etc/unpoller/credential"
+{% endif %}

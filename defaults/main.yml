@@ -1,0 +1,31 @@
+---
+# role: unpoller
+# file: defaults/main.yml
+
+# HTTPS origin of the UniFi Network controller.
+# unpoller_controller_url: https://unifi.example.org
+
+# Verify the controller certificate against the system trust store.
+unpoller_verify_ssl: true
+
+# Site names to poll, or all for every site visible to the account.
+unpoller_sites: [all]
+
+# Collect deep packet inspection statistics for clients and sites.
+unpoller_save_dpi: false
+
+# Authentication method for the local controller.
+# Choices: api_key, password.
+unpoller_auth_method: api_key
+
+# Controller API key or password for the selected authentication method.
+# unpoller_credential: '{{ vault_unpoller_credential }}'
+
+# Read-only controller user for password authentication.
+unpoller_username: unpoller
+
+# TCP address on which Prometheus can scrape /metrics.
+unpoller_listen_address: '127.0.0.1:9130'
+
+# Back up managed non-secret files before replacing them.
+unpoller_backup: true

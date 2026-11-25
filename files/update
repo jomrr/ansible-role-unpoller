@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+# role: unpoller
+# file: files/update
+set -euo pipefail
+umask 077
+export LC_ALL=C
+
+base=/usr/local/libexec/unpoller
+link=/usr/local/bin/unpoller
+repository=https://github.com/unpoller/unpoller
+api=https://api.github.com/repos/unpoller/unpoller/releases
+
+die() { echo "$*" >&2; exit 1; }
+fetch() {
+    curl -q --fail --silent --show-error --location --retry 3 --max-time 180 \
+        --proto '=https' --proto-redir '=https' "$@"
+}
+
+case ${1:-} in
+    --install|--scheduled|--check) mode=$1 ;;
+    *) die "Expected --install, --scheduled or --check" ;;
+esac
+
+case $(uname -m) in
+    x86_64) arch=amd64 ;;
+    i?86) arch=386 ;;
+    aarch64) arch=arm64 ;;
+    armv7l) arch=armv7 ;;
+    armv6l) arch=armv6 ;;
+    *) die "No supported unpoller Linux archive for $(uname -m)" ;;
+esac
+
+# Serialize resolution as well as activation so an older concurrent run cannot win.
+exec 9<"$base"
+flock -x 9
+release=$(fetch --head --output /dev/null --write-out '%{url_effective}' "$repository/releases/latest")
+tag=${release#"$repository/releases/tag/"}
+[[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Invalid stable release tag"
+version=${tag#v}
+binary="$base/unpoller-$tag"
+archive="unpoller_${version}_linux_${arch}.tar.gz"
+manifest="unpoller_${version}_checksums.txt"
+download="$repository/releases/download/$tag"
+
+verify_release() {
+    local asset signature status assets='' verified=false
+    local -a verifier=(gpg --no-options --batch --homedir "$work" --no-auto-key-retrieve)
+    "${verifier[@]}" --import "$base/golift.asc"
+    for asset in "$manifest" "$archive"; do
+        signature=$asset.sig
+        status=$(fetch --no-fail -o "$work/$signature" -w '%{http_code}' "$download/$signature")
+        if [[ $status == 404 ]]; then
+            # Consult the inventory before treating a missing signature as optional.
+            if [[ -z $assets ]]; then
+                assets=$(fetch "$api/tags/$tag" | jq -er '.assets | arrays | .[].name')
+            fi
+            grep -Fxq -- "$signature" <<< "$assets" && die "Missing advertised signature: $signature"
+            signature=$asset.asc
+            grep -Fxq -- "$signature" <<< "$assets" || continue
+            fetch "$download/$signature" -o "$work/$signature"
+        elif [[ $status != 200 ]]; then
+            die "Signature download failed with HTTP $status"
+        fi
+        "${verifier[@]}" --verify "$work/$signature" "$work/$asset"
+        verified=true
+    done
+    if [[ $verified == false ]] && grep -Eq '\.(asc|sig|minisig|sigstore(\.json)?|bundle)$' <<< "$assets"; then
+        die "Release advertises signatures but none authenticates the selected archive or manifest"
+    fi
+    # Select exactly one SHA-256 for this architecture before extracting the executable.
+    local digest='' hash filename
+    while read -r hash filename; do
+        if [[ ${filename#\*} == "$archive" ]]; then
+            [[ -z $digest && $hash =~ ^[[:xdigit:]]{64}$ ]] || die "Invalid or duplicate archive checksum"
+            digest=$hash
+        fi
+    done < "$work/$manifest"
+    [[ -n $digest ]] || die "Missing archive checksum"
+    (cd "$work" && printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --status)
+}
+
+changed=false
+if [[ ! -x $binary || $(readlink -- "$link") != "$binary" ]]; then
+    changed=true
+fi
+if [[ $mode != --check && $changed == true ]]; then
+    if [[ ! -x $binary ]]; then
+        work=$(mktemp -d "$base/.release.XXXXXXXX")
+        trap 'rm -rf -- "$work"' EXIT
+        for asset in "$manifest" "$archive"; do
+            fetch "$download/$asset" -o "$work/$asset"
+        done
+        verify_release
+        tar -xzOf "$work/$archive" -- unpoller > "$work/unpoller"
+        [[ -s $work/unpoller ]] || die "Empty release executable"
+        chmod 0755 "$work/unpoller"
+        mv -T -- "$work/unpoller" "$binary"
+    fi
+    ln -sfnT -- "$binary" "$link"
+fi
+
+# Also pick up a binary previously installed through the install-only entry point.
+if [[ $mode == --scheduled ]]; then
+    pid=$(systemctl show --property=MainPID --value unpoller.service)
+    if [[ $pid != 0 && ( $changed == true || ( -e /proc/$pid/exe && ! /proc/$pid/exe -ef $binary ) ) ]]; then
+        systemctl try-restart unpoller.service
+    fi
+fi
+if [[ $changed == true ]]; then
+    echo changed
+fi

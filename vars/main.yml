@@ -1,0 +1,6 @@
+---
+# role: unpoller
+# file: vars/main.yml
+
+__unpoller_required_facts: [os_family]
+__unpoller_required_facts_subsets: ['!all', '!min', distribution]

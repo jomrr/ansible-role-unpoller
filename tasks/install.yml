@@ -1,0 +1,91 @@
+---
+# role: unpoller
+# file: tasks/install.yml
+
+- name: install | Load platform settings
+  ansible.builtin.import_tasks: set_vars.yml
+
+- name: install | Install release verification and extraction tools
+  become: true
+  become_user: root
+  ansible.builtin.package:
+    name:
+      - '{{ __unpoller_verifier_package }}'
+      - ca-certificates
+      - '{{ __unpoller_curl_package }}'
+      - gzip
+      - jq
+      - tar
+      - util-linux
+    state: present
+
+- name: install | Create the system group
+  become: true
+  become_user: root
+  ansible.builtin.group:
+    name: unpoller
+    system: true
+
+- name: install | Create the service account
+  become: true
+  become_user: root
+  ansible.builtin.user:
+    name: unpoller
+    group: unpoller
+    system: true
+    shell: /sbin/nologin
+    home: /nonexistent
+    create_home: false
+    password_lock: true
+
+- name: install | Create root-owned executable directories
+  become: true
+  become_user: root
+  ansible.builtin.file:
+    path: '{{ __unpoller_dir }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /usr/local/bin
+    - /usr/local/libexec/unpoller
+  loop_control:
+    loop_var: __unpoller_dir
+    label: '{{ __unpoller_dir }}'
+
+- name: install | Download the pinned Go Lift release key
+  become: true
+  become_user: root
+  ansible.builtin.get_url:
+    url: https://golift.io/gpgkey
+    checksum: sha256:449f94de2172d9ccfa17e1981fc5688e15a69e20d5a6a665fce59fd65283dc82
+    dest: /usr/local/libexec/unpoller/golift.asc
+    owner: root
+    group: root
+    mode: '0644'
+    backup: '{{ unpoller_backup }}'
+
+- name: install | Install the release updater
+  become: true
+  become_user: root
+  ansible.builtin.copy:
+    src: update
+    dest: /usr/local/libexec/unpoller/update
+    owner: root
+    group: root
+    mode: '0755'
+    backup: '{{ unpoller_backup }}'
+
+- name: install | Select the latest verified release
+  become: true
+  become_user: root
+  ansible.builtin.command:
+    argv:
+      - /usr/local/libexec/unpoller/update
+      - "{{ '--check' if ansible_check_mode else '--install' }}"
+  register: __unpoller_release
+  changed_when: __unpoller_release.stdout == 'changed'
+  failed_when: __unpoller_release.rc != 0
+  check_mode: false
+  notify: '{{ __unpoller_release_handlers | default([]) }}'

@@ -1,0 +1,87 @@
+---
+# role: unpoller
+# file: molecule/resources/playbooks/verify.yml
+
+- name: Verify the running exporter and update timer
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Scrape wireless metrics from the simulated site
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9130/metrics
+        return_content: true
+      register: __unpoller_scrape
+      until: __unpoller_scrape.content | default('') is search('_aps\{[^\n]+\} 7')
+      retries: 20
+      delay: 5
+
+    - name: Inspect the credential
+      become: true
+      become_user: root
+      ansible.builtin.stat:
+        path: /etc/unpoller/credential
+        get_checksum: false
+      register: __unpoller_secret
+
+    - name: Find copies left after a credential change
+      become: true
+      become_user: root
+      ansible.builtin.find:
+        paths: /etc/unpoller
+        patterns: 'credential*'
+      register: __unpoller_credentials
+
+    - name: Inspect the selected binary
+      ansible.builtin.stat:
+        path: /usr/local/bin/unpoller
+      register: __unpoller_binary
+
+    - name: Inspect the update timer
+      ansible.builtin.systemd_service:
+        name: unpoller-update.timer
+      register: __unpoller_timer
+
+    - name: Inspect the running exporter before the scheduled check
+      ansible.builtin.systemd_service:
+        name: unpoller.service
+      register: __unpoller_before
+
+    - name: Run the same update as the timer
+      become: true
+      become_user: root
+      ansible.builtin.systemd_service:
+        name: unpoller-update.service
+        state: started
+
+    - name: Inspect the exporter after the scheduled check
+      ansible.builtin.systemd_service:
+        name: unpoller.service
+      register: __unpoller_after
+
+    - name: Read the exporter journal for credential checks
+      become: true
+      become_user: root
+      ansible.builtin.command: journalctl -u unpoller.service --no-pager -o cat
+      changed_when: false
+      register: __unpoller_journal
+      no_log: true
+
+    - name: Check that both authentication methods keep credentials out of the journal
+      ansible.builtin.assert:
+        that:
+          - "'molecule-api-key' not in __unpoller_journal.stdout"
+          - "'molecule-rotated-password' not in __unpoller_journal.stdout"
+      no_log: true
+
+    - name: Confirm credential permissions, the versioned executable and the daily timer
+      ansible.builtin.assert:
+        that:
+          - __unpoller_secret.stat.pw_name == 'root'
+          - __unpoller_secret.stat.gr_name == 'unpoller'
+          - __unpoller_secret.stat.mode == '0640'
+          - __unpoller_credentials.matched == 1
+          - __unpoller_before.status.MainPID | int > 0
+          - __unpoller_before.status.MainPID == __unpoller_after.status.MainPID
+          - __unpoller_binary.stat.lnk_source is match('/usr/local/libexec/unpoller/unpoller-v[0-9]+\.')
+          - __unpoller_timer.status.ActiveState == 'active'
+          - __unpoller_timer.status.UnitFileState == 'enabled'

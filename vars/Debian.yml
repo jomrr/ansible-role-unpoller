@@ -1,0 +1,6 @@
+---
+# role: unpoller
+# file: vars/Debian.yml
+
+__unpoller_verifier_package: gpg
+__unpoller_curl_package: curl

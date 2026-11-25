@@ -1,0 +1,52 @@
+---
+# role: unpoller
+# file: meta/argument_specs.yml
+
+argument_specs:
+  main:
+    short_description: Install a verified unpoller release and export UniFi metrics.
+    options:
+      unpoller_controller_url:
+        type: str
+        required: true
+        description: HTTPS origin of the local UniFi controller, including a port if required.
+      unpoller_verify_ssl:
+        type: bool
+        default: true
+        description: Verify the controller certificate with the host's system trust store.
+      unpoller_sites:
+        type: list
+        elements: str
+        default:
+          - all
+        description: UniFi site names to poll. Use all for every accessible site.
+      unpoller_save_dpi:
+        type: bool
+        default: false
+        description: Collect deep packet inspection statistics.
+      unpoller_auth_method:
+        type: str
+        choices:
+          - api_key
+          - password
+        default: api_key
+        description: Use a local controller API key or authenticate with a username and
+          password.
+      unpoller_credential:
+        type: str
+        required: true
+        no_log: true
+        description: API key or password for the selected authentication method.
+      unpoller_username:
+        type: str
+        default: unpoller
+        description: Read-only controller username for password authentication.
+      unpoller_listen_address:
+        type: str
+        default: 127.0.0.1:9130
+        description: Prometheus listener in host:port format. Enclose IPv6 addresses in
+          brackets.
+      unpoller_backup:
+        type: bool
+        default: true
+        description: Back up non-secret managed files when they change.

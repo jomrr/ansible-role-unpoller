@@ -1,0 +1,13 @@
+---
+# role: unpoller
+# file: molecule/resources/playbooks/rotate.yml
+
+- name: Switch the controller to password authentication and enable DPI
+  hosts: all
+  gather_facts: false
+  roles:
+    - role: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+      unpoller_auth_method: password
+      unpoller_username: metrics
+      unpoller_credential: molecule-rotated-password
+      unpoller_save_dpi: true

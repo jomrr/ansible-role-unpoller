@@ -1,0 +1,6 @@
+---
+# role: unpoller
+# file: vars/RedHat.yml
+
+__unpoller_verifier_package: gnupg2
+__unpoller_curl_package: /usr/bin/curl

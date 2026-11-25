@@ -1,0 +1,6 @@
+---
+# role: unpoller
+# file: vars/Suse.yml
+
+__unpoller_verifier_package: gpg2
+__unpoller_curl_package: curl

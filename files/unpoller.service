@@ -1,0 +1,31 @@
+[Unit]
+Description=UniFi metrics for Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=unpoller
+Group=unpoller
+ExecStart=/usr/local/bin/unpoller --config /etc/unpoller/up.conf
+Restart=on-failure
+RestartSec=10s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

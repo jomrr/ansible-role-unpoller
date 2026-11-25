@@ -1,0 +1,95 @@
+---
+# role: unpoller
+# file: molecule/resources/playbooks/prepare_controller.yml
+
+- name: Refresh distribution package metadata
+  ansible.builtin.import_playbook: prepare.yml
+
+- name: Prepare the install-only entry point and simulated UniFi controller
+  hosts: all
+  gather_facts: true
+  vars:
+    __unpoller_ca_dirs:
+      Debian: /usr/local/share/ca-certificates
+      RedHat: /etc/pki/ca-trust/source/anchors
+      Suse: /etc/pki/trust/anchors
+  tasks:
+    - name: Install only the account and release
+      ansible.builtin.include_role:
+        name: "{{ lookup('ansible.builtin.env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+        tasks_from: install
+
+    - name: Inspect application paths before configuration
+      ansible.builtin.stat:
+        path: '{{ __unpoller_path }}'
+      loop:
+        - /etc/unpoller
+        - /etc/systemd/system/unpoller.service
+        - /etc/systemd/system/unpoller-update.timer
+        - /etc/systemd/system/unpoller-update.service
+      loop_control:
+        loop_var: __unpoller_path
+      register: __unpoller_unconfigured
+
+    - name: Check that installation did not configure or start services
+      ansible.builtin.assert:
+        that: __unpoller_unconfigured.results | selectattr('stat.exists') | length == 0
+
+    - name: Install the TLS fixture dependencies
+      become: true
+      become_user: root
+      ansible.builtin.package:
+        name: [nginx, openssl]
+        state: present
+
+    - name: Create the fixture directory
+      become: true
+      become_user: root
+      ansible.builtin.file:
+        path: /etc/unpoller-fixture
+        state: directory
+        mode: '0700'
+
+    - name: Generate a short-lived loopback certificate
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -newkey rsa:2048 -nodes -days 2
+          -subj /CN=localhost -addext subjectAltName=IP:127.0.0.1
+          -keyout /etc/unpoller-fixture/controller.key -out /etc/unpoller-fixture/controller.crt
+        creates: /etc/unpoller-fixture/controller.crt
+
+    - name: Add the fixture certificate to the system trust store
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        src: /etc/unpoller-fixture/controller.crt
+        remote_src: true
+        dest: '{{ __unpoller_ca_dirs[ansible_facts.os_family] }}/molecule-unpoller.crt'
+        mode: '0644'
+      notify: Refresh the system trust store
+
+    - name: Install the simulated controller configuration
+      become: true
+      become_user: root
+      ansible.builtin.copy:
+        src: ../controller.conf
+        dest: /etc/unpoller-fixture/nginx.conf
+        mode: '0644'
+
+    - name: Start the simulated controller
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: >-
+          systemd-run --unit=unpoller-fixture /usr/sbin/nginx -c /etc/unpoller-fixture/nginx.conf
+          -g 'daemon off; pid /run/unpoller-fixture.pid;'
+      changed_when: true
+  handlers:
+    - name: Refresh the system trust store
+      become: true
+      become_user: root
+      ansible.builtin.command:
+        cmd: "{{ 'update-ca-trust' if ansible_facts.os_family == 'RedHat' else 'update-ca-certificates' }}"
+      changed_when: true
